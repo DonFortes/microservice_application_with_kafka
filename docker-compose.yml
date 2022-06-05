@@ -1,0 +1,103 @@
+version: '3.8'
+
+volumes:
+  postgres_data:
+
+services:
+  db:
+    image: postgres:14
+    restart: always
+    container_name: db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - PGHOST=postgres
+      - POSTGRES_DB=postgres
+      - POSTGRES_PASSWORD=postgres
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  broker:
+    image: confluentinc/cp-kafka:7.0.1
+    container_name: broker
+    ports:
+#     To learn about configuring Kafka for access across networks see
+#     https://www.confluent.io/blog/kafka-client-cannot-connect-to-broker-on-aws-on-docker-etc/
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:9092,PLAINTEXT_INTERNAL://broker:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  producer:
+    tty: true
+    build: ./producer
+    restart: always
+    container_name: producer
+    depends_on:
+      - broker
+    volumes:
+      - ./producer:/code/
+    entrypoint:
+      - bash
+      - -c
+      - |
+        echo 'Giving Kafka a bit of time to start up...'
+        sleep 15
+        python producer.py
+    environment:
+      - BROKER_HOST_NAME=broker
+      - BROKER_HOST_PORT=9092
+
+  consumer:
+    tty: true
+    build: ./consumer
+    restart: always
+    container_name: consumer
+    depends_on:
+      - producer
+    volumes:
+      - ./consumer:/code/
+    entrypoint:
+      - bash
+      - -c
+      - |
+        echo 'Giving producer a bit of time to create messages...'
+        sleep 16
+        python consumer.py
+    environment:
+      - BROKER_HOST_NAME=broker
+      - BROKER_HOST_PORT=9092
+
+  rest_api:
+    tty: true
+    build: ./rest_api
+    restart: always
+    container_name: rest_api
+    depends_on:
+      - consumer
+    volumes:
+      - ./rest_api:/code/
+    ports:
+      - "127.0.0.1:8000:80"
+    entrypoint:
+      - bash
+      - -c
+      - |
+        echo 'Giving consumer a bit of time to read messages and write them to database...'
+        sleep 17
+        uvicorn main:app --host 0.0.0.0 --port 80

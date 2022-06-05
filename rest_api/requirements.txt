@@ -1,0 +1,6 @@
+fastapi==0.78.0
+uvicorn==0.17.6
+psycopg2==2.9.3
+sqlalchemy==1.4.37
+loguru==0.6.0
+fastapi-pagination==0.9.3
